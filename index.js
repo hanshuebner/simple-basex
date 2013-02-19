@@ -2,6 +2,26 @@
  * http://docs.basex.org/wiki/Server_Protocol
  */
 
+/* The BaseX protocol uses zero terminated strings with escaping for
+ * zero bytes in strings.
+ *
+ * The decoding of incoming messages needs to be deferred until the
+ * type of the data is known, which is dependent on the type of
+ * exchange being executed.  In order to support this, two buffering
+ * levels are used - Incoming data buffers are stored until they are
+ * consumed and a second decoding buffer for strings is used so that
+ * UTF-8 decoding can be performed on one buffer.  When reading a
+ * string, bytes are pulled from the input buffers until a zero byte
+ * is read.  When an escape byte (0xff) is seen, the next byte is put
+ * into the string buffer verbatim.  As soon as the zero terminator is
+ * encountered, the rest of the buffer is kept in the input buffer
+ * chain, the string is decoded and the handler is invoked.
+ *
+ * This convoluted mechanism is used to make sure that UTF-8 multi
+ * byte sequences which are split across incoming packet boundaries
+ * are correctly decoded.
+ */
+
 var net = require('net');
 var events = require('events');
 var util = require('util');
@@ -164,6 +184,7 @@ Session.prototype.chain = function (handler, first) {
     var session = this;
     var args = [];
     var functions = Array.prototype.slice.call(arguments, 2);
+
     function maybeInvokeNext(arg) {
         args.push(arg);
         if (functions.length) {
@@ -172,6 +193,7 @@ Session.prototype.chain = function (handler, first) {
             handler.apply(session, args);
         }
     }
+
     first.call(session, maybeInvokeNext);
 }
 
