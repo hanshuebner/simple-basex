@@ -1,0 +1,20 @@
+{
+  "name": "simple-basex",
+  "version": "0.0.1",
+  "description": "Simple BaseX client",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/hanshuebner/simple-basex"
+  },
+  "keywords": [
+    "basex",
+    "xml",
+    "database-client"
+  ],
+  "author": "Hans Hübner",
+  "license": "BSD"
+}
