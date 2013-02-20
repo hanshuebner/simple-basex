@@ -64,22 +64,49 @@ function Session(options) {
 
 util.inherits(Session, events.EventEmitter);
 
-Session.prototype.writeStrings = function() {
+Session.prototype.writeMessage = function() {
     var bufferSize = 0;
-    var stringCount = 0;
-    for (; stringCount < arguments.length; stringCount++) {
-        if (typeof arguments[stringCount] == 'string') {
-            bufferSize += Buffer.byteLength(arguments[stringCount]) + 1;
-        } else {
+    var argCount = 0;
+    var handler;
+    for (; argCount < arguments.length && !handler; argCount++) {
+        var arg = arguments[argCount];
+        switch (typeof arg) {
+        case 'string':
+            bufferSize += Buffer.byteLength(arg) + 1;
             break;
+        case 'number':
+            if (arg < 0 || arg > 255) {
+                throw new Error('numeric protocol argument out range (needs to be between 0 and 255');
+            }
+            bufferSize += 1;
+            break;
+        case 'function':
+            handler = arg;
+            break;
+        default:
+            throw new Error("unexpected argument type (at 2)");
         }
     }
-    var handler = arguments[stringCount];
+    if (!handler) {
+        throw new Error('missing handler in writeMessage');
+    }
+    argCount--;                                             // we counted the handler, too
     var buffer = new Buffer(bufferSize);
     var offset = 0;
-    for (var i = 0; i < stringCount; i++) {
-        offset += buffer.write(arguments[i], offset);
-        buffer[offset++] = 0;
+    for (var i = 0; i < argCount; i++) {
+        var arg = arguments[i];
+        switch (typeof arg) {
+        case 'string':
+            offset += buffer.write(arg, offset);
+            buffer[offset++] = 0;
+            break;
+        case 'number':
+            buffer.write(String.fromCharCode(arg), 1);
+            offset++;
+            break;
+        default:
+            throw new Error("unexpected argument type (at 2)");
+        }
     }
     this.socket.write(buffer, handler.bind(this));
 }
@@ -167,7 +194,7 @@ Session.prototype.readString = function(handler) {
 
 Session.prototype.performHandshake = function() {
     this.readString(function(timestamp) {
-        this.writeStrings(this.options.user, md5(md5(this.options.password) + timestamp), this.getLoginStatus);
+        this.writeMessage(this.options.user, md5(md5(this.options.password) + timestamp), this.getLoginStatus);
     }.bind(this));
 }
 
@@ -227,7 +254,7 @@ Session.prototype.execute = function (query, handler) {
         }
     }
 
-    this.writeStrings(query, function () {
+    this.writeMessage(query, function () {
         this.chain(invokeHandler, this.readString, this.readString, this.readByte);
     }.bind(this));
 }
