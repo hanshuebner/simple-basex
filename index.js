@@ -51,6 +51,7 @@ function Session(options) {
     this.waiting = []; // [ reader, handler ] currently waiting
     this.buffers = []; // list of buffers with unconsumed data
     this.busy = true;
+    this.queue = [];
 
     this.socket = net.createConnection(this.options.port, this.options.host);
     this.socket.setNoDelay();
@@ -58,6 +59,7 @@ function Session(options) {
     var session = this;
     this.socket.on('connect', function () { session.performHandshake(); });
     this.socket.on('data', function (data) { session.handleData(data); });
+    this.socket.on('end', function () { session.busy = true; });
 }
 
 util.inherits(Session, events.EventEmitter);
@@ -169,10 +171,17 @@ Session.prototype.performHandshake = function() {
     }.bind(this));
 }
 
+Session.prototype.checkQueue = function () {
+    this.busy = false;
+    if (this.queue.length) {
+        (this.queue.pop())();
+    }
+}
+
 Session.prototype.getLoginStatus = function () {
     this.readByte(function(loginStatus) {
         if (loginStatus == 0) {
-            this.busy = false;
+            this.checkQueue();
             this.emit('loggedIn');
         } else {
             this.emit('error', new Error('authorization failed'));
@@ -197,24 +206,45 @@ Session.prototype.chain = function (handler, first) {
     first.call(session, maybeInvokeNext);
 }
 
+Session.prototype.defaultHandler = function(result, info, code) {
+    this.emit('result', { result: result, info: info, code: code });
+}
+
 Session.prototype.execute = function (query, handler) {
+    handler = handler || this.defaultHandler;
     if (this.busy) {
-        this.emit('error', new Error('database connection is busy'));
+        this.queue.unshift(arguments.callee.bind(this, query, handler));
+        return;
     }
     this.busy = true;
 
     function invokeHandler (result, info, code) {
         if (code == 0) {
-            this.busy = false;
             handler.call(this, result, info);
+            this.checkQueue();
         } else {
             this.emit('error', new Error('BaseX query failed\nquery: ' + query + '\n' + 'message: ' + info));
         }
     }
 
     this.writeStrings(query, function () {
-        this.chain(invokeHandler.bind(this), this.readString, this.readString, this.readByte);
+        this.chain(invokeHandler, this.readString, this.readString, this.readByte);
     }.bind(this));
+}
+
+function Query() {
+}
+
+Query.prototype.bind = function(name, value, type) {
+}
+
+Query.prototype.close = function(handler) {
+}
+
+Query.prototype.execute = function(handler) {
+}
+
+Query.prototype.info = function(handler) {
 }
 
 exports.Session = Session;
