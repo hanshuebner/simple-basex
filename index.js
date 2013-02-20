@@ -101,8 +101,7 @@ Session.prototype.writeMessage = function() {
             buffer[offset++] = 0;
             break;
         case 'number':
-            buffer.write(String.fromCharCode(arg), 1);
-            offset++;
+            buffer.writeInt8(arg, offset++);
             break;
         default:
             throw new Error("unexpected argument type (at 2)");
@@ -162,6 +161,8 @@ Session.prototype.handleData = function(data) {
         }
     } else if (this.waiting[0] === this.readByte) {
         this.popAndInvokeHandler(this.getByteFromBuffers());
+    } else {
+        throw new Error("Unexpected handler " + this.waiting[0] + " waiting");
     }
 }
 
@@ -259,7 +260,29 @@ Session.prototype.execute = function (query, handler) {
     }.bind(this));
 }
 
-function Query() {
+Session.prototype.query = function(query, retval) {
+    var retval = retval || new Query(this);
+
+    if (this.busy) {
+        this.queue.unshift(arguments.callee.bind(this, query, retval));
+        return retval;
+    }
+    this.busy = true;
+
+    function saveQueryId(id, status) {
+        retval.id = id;
+        this.emit('queryIdAllocated');
+        this.checkQueue();
+    }
+
+    this.writeMessage(0, query, function () {
+        this.chain(saveQueryId, this.readString, this.readByte);
+    });
+}
+
+function Query(session) {
+    this.session = session;
+    this.id = undefined;
 }
 
 Query.prototype.bind = function(name, value, type) {
