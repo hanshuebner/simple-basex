@@ -196,7 +196,7 @@ Session.prototype.readString = function(handler) {
 Session.prototype.performHandshake = function() {
     this.readString(function(timestamp) {
         this.writeMessage(this.options.user, md5(md5(this.options.password) + timestamp), this.getLoginStatus);
-    }.bind(this));
+    });
 }
 
 Session.prototype.checkQueue = function () {
@@ -257,7 +257,7 @@ Session.prototype.execute = function (query, handler) {
 
     this.writeMessage(query, function () {
         this.chain(invokeHandler, this.readString, this.readString, this.readByte);
-    }.bind(this));
+    });
 }
 
 Session.prototype.query = function(query, retval) {
@@ -271,7 +271,7 @@ Session.prototype.query = function(query, retval) {
 
     function saveQueryId(id, status) {
         retval.id = id;
-        this.emit('queryIdAllocated');
+        this.emit('queryIdAllocated', retval);
         this.checkQueue();
     }
 
@@ -285,7 +285,33 @@ function Query(session) {
     this.id = undefined;
 }
 
+Query.prototype.waitForId = function(continuation) {
+    console.log('waitForId');
+    if (this.session.busy) {
+        console.log('busy');
+        this.session.queue.unshift(arguments.callee.bind(this, continuation));
+        return;
+    }
+    this.session.busy = true;
+
+    function handler(query) {
+        console.log('waitForId, id', query.id);
+        if (this !== query || query.id == undefined) {
+            query.session.once('queryIdAllocated', handler);
+        } else {
+            continuation();
+        }
+    }
+    handler.bind(this)(this);
+}
+
 Query.prototype.bind = function(name, value, type) {
+    this.waitForId(function (name, value, type) {
+        console.log('this.id', this.id, 'name', name, 'value', value, 'type', type);
+        this.session.writeMessage(3, this.id, name, value, type || "", function () {
+            this.chain(function () {}, this.readByte, this.readByte);
+        });
+    }.bind(this, name, value, type));
 }
 
 Query.prototype.close = function(handler) {
