@@ -300,6 +300,7 @@ Query.prototype.waitForId = function(continuation) {
             query.session.once('queryIdAllocated', handler);
         } else {
             continuation();
+            query.session.checkQueue();
         }
     }
     handler.bind(this)(this);

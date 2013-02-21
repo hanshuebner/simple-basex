@@ -7,15 +7,21 @@ s.on('loggedIn', function() {
     });
 });
 
-var query1 = s.query('/ballhaus/repertoire/piece[1]/name');
-var query2 = s.query('/ballhaus/repertoire/piece[2]/name');
-
 s.on('databaseOpen', function() {
+    var query1 = s.query('/ballhaus/repertoire/piece[1]/name');
+    var query2 = s.query('/ballhaus/repertoire/piece[2]/name');
+
+    query1.bind('foo', '1', 'xs:string');
+    query2.bind('bar', '2', 'xs:string');
+
     console.log('database is open');
     console.log('query1', query1.id);
     console.log('query2', query2.id);
     s.execute('xquery /ballhaus/repertoire/piece[1]/name');
-    s.execute('xquery /ballhaus/repertoire/piece[2]/name');
+    s.execute('xquery /ballhaus/repertoire/piece[2]/name', function (result) {
+        console.log('specific handler for second query, result:', result);
+    });
+    s.execute('xquery /ballhaus/repertoire/piece[3]/name');
     s.execute('exit');
 });
 
