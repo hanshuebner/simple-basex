@@ -197,6 +197,11 @@ Session.prototype.transaction = function(sendData, receiveData, handler) {
     this.writeMessage(sendData);
 }
 
+Session.prototype.readError = function(handler) {
+    this.queue.unshift(handler);
+    this.queue.unshift(this.READ_STRING);
+}
+
 Session.prototype.performHandshake = function() {
     this.transaction([],
                      [ this.READ_STRING ],
@@ -259,15 +264,26 @@ Query.prototype.bind = function(name, value, type) {
         throw new Error('cannot bind to query that has no ID allocated yet');
     }
 
-    this.session.transaction([ 3, this.id, name, value, type ],
+    if (type == undefined) {
+        switch (typeof value) {
+        case 'string':
+            type = 'xs:string';
+            break;
+        case 'number':
+            type = 'xs:decimal';
+            break;
+        default:
+            type = 'xs:string';
+        }
+    }
+
+    this.session.transaction([ 3, this.id, name, value.toString(), type ],
                              [ this.session.READ_STRING, this.session.READ_BYTE ],
                              function (empty, status) {
                                  if (status) {
-                                     this.transaction([],
-                                                      [ this.READ_STRING ],
-                                                      function (message) {
-                                                          this.emit('error', new Error('bind error: ' + message));
-                                                      });
+                                     this.readError(function (message) {
+                                         this.emit('error', new Error('bind error: ' + message));
+                                     });
                                  }
                              });
 }
@@ -276,6 +292,15 @@ Query.prototype.close = function(handler) {
 }
 
 Query.prototype.execute = function(handler) {
+    if (this.id == undefined) {
+        throw new Error('cannot bind to query that has no ID allocated yet');
+    }
+
+    this.session.transaction([ 5, this.id ],
+                             [ this.session.READ_STRING, this.session.READ_BYTE ],
+                             function (result, status) {
+                                 console.log('prepared query ran, result:', result, 'status', status);
+                             });
 }
 
 Query.prototype.info = function(handler) {

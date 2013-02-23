@@ -8,18 +8,24 @@ s.on('loggedIn', function() {
 });
 
 s.on('databaseOpen', function() {
-    var query1 = s.query('/ballhaus/repertoire/piece[1]/name');
+    var query1 = s.query('<bar foo="{$foo}" bar="{$bar}"/>');
 
     this.on('queryIdAllocated', function () {
-        query1.bind('foo', '1', 'xs:string');
+        query1.bind('foo', '30');
+        query1.bind('bar', 31);
 
         console.log('database is open');
         console.log('query1', query1.id);
+        query1.execute(function (result) {
+            console.log('prepared query executed:', result);
+        });
+        /*
         s.execute('xquery /ballhaus/repertoire/piece[1]/name');
         s.execute('xquery /ballhaus/repertoire/piece[2]/name', function (result) {
             console.log('specific handler for second query, result:', result);
         });
         s.execute('xquery /ballhaus/repertoire/piece[3]/name');
+        */
         s.execute('exit');
     });
 });
