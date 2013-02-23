@@ -84,7 +84,7 @@ Session.prototype.writeMessage = function() {
             handler = arg;
             break;
         default:
-            throw new Error("unexpected argument type (at 2)");
+            throw new Error("unexpected argument type (at 1)");
         }
     }
     if (!handler) {
@@ -154,7 +154,9 @@ Session.prototype.popAndInvokeHandler = function (arg) {
 Session.prototype.handleData = function(data) {
     this.buffers.push(data);
 
-    if (this.waiting[0] === this.readString) {
+    if (this.waiting.length == 0) {
+        return;
+    } else if (this.waiting[0] === this.readString) {
         var string = this.getStringFromBuffers();
         if (string !== null) {
             this.popAndInvokeHandler(string);
@@ -162,6 +164,7 @@ Session.prototype.handleData = function(data) {
     } else if (this.waiting[0] === this.readByte) {
         this.popAndInvokeHandler(this.getByteFromBuffers());
     } else {
+        console.log(this);
         throw new Error("Unexpected handler " + this.waiting[0] + " waiting");
     }
 }
@@ -202,7 +205,7 @@ Session.prototype.performHandshake = function() {
 Session.prototype.checkQueue = function () {
     this.busy = false;
     if (this.queue.length) {
-        (this.queue.pop())();
+        (this.queue.shift())();
     }
 }
 
@@ -241,7 +244,7 @@ Session.prototype.defaultHandler = function(result, info, code) {
 Session.prototype.execute = function (query, handler) {
     handler = handler || this.defaultHandler;
     if (this.busy) {
-        this.queue.unshift(arguments.callee.bind(this, query, handler));
+        this.queue.push(arguments.callee.bind(this, query, handler));
         return;
     }
     this.busy = true;
@@ -264,7 +267,7 @@ Session.prototype.query = function(query, retval) {
     var retval = retval || new Query(this);
 
     if (this.busy) {
-        this.queue.unshift(arguments.callee.bind(this, query, retval));
+        this.queue.push(arguments.callee.bind(this, query, retval));
         return retval;
     }
     this.busy = true;
@@ -289,7 +292,7 @@ Query.prototype.waitForId = function(continuation) {
     console.log('waitForId');
     if (this.session.busy) {
         console.log('busy');
-        this.session.queue.unshift(arguments.callee.bind(this, continuation));
+        this.session.queue.push(arguments.callee.bind(this, continuation));
         return;
     }
     this.session.busy = true;
@@ -310,7 +313,9 @@ Query.prototype.bind = function(name, value, type) {
     this.waitForId(function (name, value, type) {
         console.log('this.id', this.id, 'name', name, 'value', value, 'type', type);
         this.session.writeMessage(3, this.id, name, value, type || "", function () {
-            this.chain(function () {}, this.readByte, this.readByte);
+            this.chain(function (byte1, byte2) {
+                console.log('bind result', byte1, byte2);
+            }, this.readByte, this.readByte);
         });
     }.bind(this, name, value, type));
 }
