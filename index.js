@@ -48,10 +48,9 @@ function Session(options) {
     this.stringBuffer = new Buffer(this.options.initialStringBufferSize);
     this.stringBufferOffset = 0;
     this.inEscape = false;
-    this.waiting = []; // [ reader, handler ] currently waiting
     this.buffers = []; // list of buffers with unconsumed data
-    this.busy = true;
     this.queue = [];
+    this.handlerArguments = [];
 
     this.socket = net.createConnection(this.options.port, this.options.host);
     this.socket.setNoDelay();
@@ -64,12 +63,13 @@ function Session(options) {
 
 util.inherits(Session, events.EventEmitter);
 
-Session.prototype.writeMessage = function() {
+Session.prototype.READ_STRING = 1;
+Session.prototype.READ_BYTE = 2;
+
+Session.prototype.writeMessage = function(items) {
     var bufferSize = 0;
-    var argCount = 0;
-    var handler;
-    for (; argCount < arguments.length && !handler; argCount++) {
-        var arg = arguments[argCount];
+    for (var i = 0; i < items.length; i++) {
+        var arg = items[i];
         switch (typeof arg) {
         case 'string':
             bufferSize += Buffer.byteLength(arg) + 1;
@@ -87,14 +87,10 @@ Session.prototype.writeMessage = function() {
             throw new Error("unexpected argument type (at 1)");
         }
     }
-    if (!handler) {
-        throw new Error('missing handler in writeMessage');
-    }
-    argCount--;                                             // we counted the handler, too
     var buffer = new Buffer(bufferSize);
     var offset = 0;
-    for (var i = 0; i < argCount; i++) {
-        var arg = arguments[i];
+    for (var i = 0; i < items.length; i++) {
+        var arg = items[i];
         switch (typeof arg) {
         case 'string':
             offset += buffer.write(arg, offset);
@@ -107,7 +103,9 @@ Session.prototype.writeMessage = function() {
             throw new Error("unexpected argument type (at 2)");
         }
     }
-    this.socket.write(buffer, handler.bind(this));
+    if (!this.socket.write(buffer)) {
+        throw new Error('could not write (write buffering not implemented)');
+    }
 }
 
 Session.prototype.pushToStringBuffer = function (byte) {
@@ -145,96 +143,78 @@ Session.prototype.getStringFromBuffers = function() {
     return null;
 }
 
-Session.prototype.popAndInvokeHandler = function (arg) {
-    var handler = this.waiting[1];
-    this.waiting = [];
-    handler.call(this, arg);
+Session.prototype.getByteFromBuffers = function () {
+    if (this.buffers.length) {
+        var byte = this.buffers[0][0];
+        if (this.buffers[0].length > 1) {
+            this.buffers[0] = this.buffers[0].slice(1);
+        } else {
+            this.buffers.shift();
+        }
+        return byte;
+    } else {
+        return null;
+    }
 }
 
 Session.prototype.handleData = function(data) {
     this.buffers.push(data);
 
-    if (this.waiting.length == 0) {
-        return;
-    } else if (this.waiting[0] === this.readString) {
-        var string = this.getStringFromBuffers();
-        if (string !== null) {
-            this.popAndInvokeHandler(string);
+    while (this.queue.length > 0) {
+        switch (this.queue[0]) {
+        case this.READ_STRING:
+            var string = this.getStringFromBuffers();
+            if (string !== null) {
+                this.handlerArguments.push(string);
+                this.queue.shift();
+                break;
+            } else {
+                return;
+            }
+        case this.READ_BYTE:
+            var byte = this.getByteFromBuffers();
+            if (byte !== null) {
+                this.handlerArguments.push(byte);
+                this.queue.shift();
+                break;
+            } else {
+                return;
+            }
+        default:
+            var handler = this.queue.shift();
+            var arguments = this.handlerArguments;
+            this.handlerArguments = [];
+            handler.apply(this, arguments);
         }
-    } else if (this.waiting[0] === this.readByte) {
-        this.popAndInvokeHandler(this.getByteFromBuffers());
-    } else {
-        console.log(this);
-        throw new Error("Unexpected handler " + this.waiting[0] + " waiting");
     }
 }
 
-Session.prototype.getByteFromBuffers = function () {
-    var byte = this.buffers[0][0];
-    if (this.buffers[0].length > 1) {
-        this.buffers[0] = this.buffers[0].slice(1);
-    } else {
-        this.buffers.shift();
+Session.prototype.transaction = function(sendData, receiveData, handler) {
+    for (var i = 0; i < receiveData.length; i++) {
+        this.queue.push(receiveData[i]);
     }
-    return byte;
-}
-
-Session.prototype.readByte = function(handler) {
-    if (this.buffers.length) {
-        handler.call(this, this.getByteFromBuffers());
-    } else {
-        this.waiting = [ this.readByte, handler ];
-    }
-}
-
-Session.prototype.readString = function(handler) {
-    var string = this.getStringFromBuffers();
-    if (string) {
-        handler.call(this, string);
-    } else {
-        this.waiting = [ this.readString, handler ];
-    }
+    this.queue.push(handler);
+    this.writeMessage(sendData);
 }
 
 Session.prototype.performHandshake = function() {
-    this.readString(function(timestamp) {
-        this.writeMessage(this.options.user, md5(md5(this.options.password) + timestamp), this.getLoginStatus);
-    });
+    this.transaction([],
+                     [ this.READ_STRING ],
+                     this.login);
 }
 
-Session.prototype.checkQueue = function () {
-    this.busy = false;
-    if (this.queue.length) {
-        (this.queue.shift())();
-    }
+Session.prototype.login = function(timestamp) {
+    this.transaction([ this.options.user, md5(md5(this.options.password) + timestamp) ],
+                     [ this.READ_BYTE ],
+                     this.getLoginStatus);
 }
 
-Session.prototype.getLoginStatus = function () {
-    this.readByte(function(loginStatus) {
-        if (loginStatus == 0) {
-            this.checkQueue();
-            this.emit('loggedIn');
-        } else {
-            this.emit('error', new Error('authorization failed'));
-        }
-    });
-}
-
-Session.prototype.chain = function (handler, first) {
-    var session = this;
-    var args = [];
-    var functions = Array.prototype.slice.call(arguments, 2);
-
-    function maybeInvokeNext(arg) {
-        args.push(arg);
-        if (functions.length) {
-            functions.shift().call(session, maybeInvokeNext);
-        } else {
-            handler.apply(session, args);
-        }
-    }
-
-    first.call(session, maybeInvokeNext);
+Session.prototype.getLoginStatus = function (loginStatus) {
+    if (loginStatus == 0) {
+        this.emit('loggedIn');
+    } else {
+        this.emit('error', new Error('authorization failed'));
+    };
 }
 
 Session.prototype.defaultHandler = function(result, info, code) {
@@ -243,81 +223,43 @@ Session.prototype.defaultHandler = function(result, info, code) {
 
 Session.prototype.execute = function (query, handler) {
     handler = handler || this.defaultHandler;
-    if (this.busy) {
-        this.queue.push(arguments.callee.bind(this, query, handler));
-        return;
-    }
-    this.busy = true;
-
-    function invokeHandler (result, info, code) {
-        if (code == 0) {
-            handler.call(this, result, info);
-            this.checkQueue();
-        } else {
-            this.emit('error', new Error('BaseX query failed\nquery: ' + query + '\n' + 'message: ' + info));
-        }
-    }
-
-    this.writeMessage(query, function () {
-        this.chain(invokeHandler, this.readString, this.readString, this.readByte);
-    });
+    this.transaction([ query ],
+                     [ this.READ_STRING, this.READ_STRING, this.READ_BYTE ],
+                     function (result, info, code) {
+                         if (code == 0) {
+                             handler.call(this, result, info);
+                         } else {
+                             this.emit('error', new Error('BaseX query failed\nquery: ' + query + '\n' + 'message: ' + info));
+                         }
+                     });
 }
 
-Session.prototype.query = function(query, retval) {
-    var retval = retval || new Query(this);
+Session.prototype.query = function(queryString) {
+    var retval = new Query(this);
 
-    if (this.busy) {
-        this.queue.push(arguments.callee.bind(this, query, retval));
-        return retval;
-    }
-    this.busy = true;
-
-    function saveQueryId(id, status) {
-        retval.id = id;
-        this.emit('queryIdAllocated', retval);
-        this.checkQueue();
-    }
-
-    this.writeMessage(0, query, function () {
-        this.chain(saveQueryId, this.readString, this.readByte);
-    });
+    this.transaction([ 0, queryString ],
+                     [ this.READ_STRING, this.READ_BYTE ],
+                     function saveQueryId(id, status) {
+                         if (status != 0) {
+                             this.emit('error', new Error('unexpected status ' + status + ' received from server when allocating query ID'));
+                         } else {
+                             retval.id = id;
+                             this.emit('queryIdAllocated', retval);
+                         }
+                     });
+    return retval;
 }
 
 function Query(session) {
     this.session = session;
-    this.id = undefined;
-}
-
-Query.prototype.waitForId = function(continuation) {
-    console.log('waitForId');
-    if (this.session.busy) {
-        console.log('busy');
-        this.session.queue.push(arguments.callee.bind(this, continuation));
-        return;
-    }
-    this.session.busy = true;
-
-    function handler(query) {
-        console.log('waitForId, id', query.id);
-        if (this !== query || query.id == undefined) {
-            query.session.once('queryIdAllocated', handler);
-        } else {
-            continuation();
-            query.session.checkQueue();
-        }
-    }
-    handler.bind(this)(this);
 }
 
 Query.prototype.bind = function(name, value, type) {
-    this.waitForId(function (name, value, type) {
-        console.log('this.id', this.id, 'name', name, 'value', value, 'type', type);
-        this.session.writeMessage(3, this.id, name, value, type || "", function () {
-            this.chain(function (byte1, byte2) {
-                console.log('bind result', byte1, byte2);
-            }, this.readByte, this.readByte);
-        });
-    }.bind(this, name, value, type));
+    this.session.transaction([ 3, this.id, name, value, type ],
+                             [ this.session.READ_BYTE, this.session.READ_BYTE ],
+                             function (status1, status2) {
+                                 console.log('bind result', status1, status2);
+                             });
 }
 
 Query.prototype.close = function(handler) {
