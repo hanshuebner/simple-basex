@@ -11,14 +11,9 @@ s.on('databaseOpen', function() {
     var query1 = s.query('<bar foo="{$foo}" bar="{$bar}"/>');
 
     this.on('queryIdAllocated', function () {
-        query1.bind('foo', '30');
-        query1.bind('bar', 31);
-
-        console.log('database is open');
-        console.log('query1', query1.id);
         query1.execute(function (result) {
-            console.log('prepared query executed:', result);
-        });
+            console.log('prepared query executed again:', result);
+        }, { foo: 17, bar: 17 });
         /*
         s.execute('xquery /ballhaus/repertoire/piece[1]/name');
         s.execute('xquery /ballhaus/repertoire/piece[2]/name', function (result) {

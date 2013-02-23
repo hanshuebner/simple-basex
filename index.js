@@ -223,6 +223,10 @@ Session.prototype.getLoginStatus = function (loginStatus) {
 }
 
 Session.prototype.defaultHandler = function(result, info, code) {
+    if (code == undefined) {
+        code = info;
+        info = undefined;
+    }
     this.emit('result', { result: result, info: info, code: code });
 }
 
@@ -291,15 +295,25 @@ Query.prototype.bind = function(name, value, type) {
 Query.prototype.close = function(handler) {
 }
 
-Query.prototype.execute = function(handler) {
+Query.prototype.execute = function(handler, args) {
+    var handler = handler || this.defaultHandler;
+    
     if (this.id == undefined) {
         throw new Error('cannot bind to query that has no ID allocated yet');
     }
 
-    this.session.transaction([ 5, this.id ],
+    for (var key in args) {
+        this.bind(key, args[key]);
+    }
+
+    var that = this;
+    this.session.transaction([ 5, that.id ],
                              [ this.session.READ_STRING, this.session.READ_BYTE ],
                              function (result, status) {
-                                 console.log('prepared query ran, result:', result, 'status', status);
+                                 that.session.transaction([ 2, that.id ],
+                                                          [ that.session.READ_STRING, that.session.READ_BYTE ],
+                                                          function () {});
+                                 handler();
                              });
 }
 
