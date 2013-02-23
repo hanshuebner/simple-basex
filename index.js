@@ -255,10 +255,20 @@ function Query(session) {
 }
 
 Query.prototype.bind = function(name, value, type) {
+    if (this.id == undefined) {
+        throw new Error('cannot bind to query that has no ID allocated yet');
+    }
+
     this.session.transaction([ 3, this.id, name, value, type ],
-                             [ this.session.READ_BYTE, this.session.READ_BYTE ],
-                             function (status1, status2) {
-                                 console.log('bind result', status1, status2);
+                             [ this.session.READ_STRING, this.session.READ_BYTE ],
+                             function (empty, status) {
+                                 if (status) {
+                                     this.transaction([],
+                                                      [ this.READ_STRING ],
+                                                      function (message) {
+                                                          this.emit('error', new Error('bind error: ' + message));
+                                                      });
+                                 }
                              });
 }
 
