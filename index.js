@@ -66,6 +66,14 @@ util.inherits(Session, events.EventEmitter);
 Session.prototype.READ_STRING = 1;
 Session.prototype.READ_BYTE = 2;
 
+Session.prototype.CMD_QUERY = 0;
+Session.prototype.CMD_CLOSE = 2;
+Session.prototype.CMD_BIND = 3;
+Session.prototype.CMD_RESULTS = 4;
+Session.prototype.CMD_EXECUTE = 5;
+Session.prototype.CMD_INFO = 6;
+Session.prototype.CMD_OPTIONS = 7;
+
 Session.prototype.writeMessage = function(items) {
     var bufferSize = 0;
     for (var i = 0; i < items.length; i++) {
@@ -246,7 +254,7 @@ Session.prototype.execute = function (query, handler) {
 Session.prototype.query = function(queryString) {
     var retval = new Query(this);
 
-    this.transaction([ 0, queryString ],
+    this.transaction([ this.CMD_QUERY, queryString ],
                      [ this.READ_STRING, this.READ_BYTE ],
                      function saveQueryId(id, status) {
                          if (status != 0) {
@@ -281,7 +289,7 @@ Query.prototype.bind = function(name, value, type) {
         }
     }
 
-    this.session.transaction([ 3, this.id, name, value.toString(), type ],
+    this.session.transaction([ this.session.CMD_BIND, this.id, name, value.toString(), type ],
                              [ this.session.READ_STRING, this.session.READ_BYTE ],
                              function (empty, status) {
                                  if (status) {
@@ -307,10 +315,10 @@ Query.prototype.execute = function(handler, args) {
     }
 
     var that = this;
-    this.session.transaction([ 5, that.id ],
+    this.session.transaction([ this.session.CMD_EXECUTE, that.id ],
                              [ this.session.READ_STRING, this.session.READ_BYTE ],
                              function (result, status) {
-                                 that.session.transaction([ 2, that.id ],
+                                 that.session.transaction([ that.session.CMD_CLOSE, that.id ],
                                                           [ that.session.READ_STRING, that.session.READ_BYTE ],
                                                           function () {});
                                  handler();
