@@ -28,10 +28,10 @@ var util = require('util');
 var crypto = require('crypto');
 
 exports.sessionDefaults = {
-    host: 'localhost',
-    port: 1984,
-    user: 'admin',
-    password: 'admin',
+    host: process.env.BASEX_HOST || 'localhost',
+    port: process.env.BASEX_PORT || 1984,
+    user: process.env.BASEX_USERNAME || 'admin',
+    password: process.env.BASEX_PASSWORD || 'admin',
     initialStringBufferSize: 0x10000
 };
 
@@ -251,81 +251,57 @@ Session.prototype.execute = function (query, handler) {
                      });
 }
 
-Session.prototype.query = function(queryString) {
-    var retval = new Query(this);
+Session.prototype.getValueType = function(value) {
+    switch (typeof value) {
+    case 'string':
+        return 'xs:string';
+        break;
+    case 'number':
+        return 'xs:decimal';
+        break;
+    default:
+        return 'xs:string';
+    }
+}
 
+Session.prototype.executeBoundQuery = function(id, bindings, handler) {
+    var output = [];
+    var input = [];
+    for (var key in bindings) {
+        var value = bindings[key];
+        output = output.concat([ this.CMD_BIND, id, key, value.toString(), this.getValueType(value) ]);
+        input = input.concat([ this.READ_STRING, this.READ_BYTE,
+                               function (empty, status) {
+                                   if (status != 0) {
+                                       this.emit('error', new Error("binding of variable " + key + " failed"));
+                                   }
+                               } ]);
+    }
+    output = output.concat([ this.CMD_EXECUTE, id ]);
+    input = input.concat([ this.READ_STRING, this.READ_BYTE,
+                           function (result, status) {
+                               if (status != 0) {
+                                   this.readError(function (message) {
+                                       handler(new Error(message));
+                                   });
+                               } else {
+                                   handler(null, result);
+                               }
+                           } ]);
+    this.queue = this.queue.concat(input);
+    this.writeMessage(output);
+}
+
+Session.prototype.query = function(queryString, bindings, handler) {
     this.transaction([ this.CMD_QUERY, queryString ],
                      [ this.READ_STRING, this.READ_BYTE ],
-                     function saveQueryId(id, status) {
+                     function (id, status) {
                          if (status != 0) {
-                             this.emit('error', new Error('unexpected status ' + status + ' received from server when allocating query ID'));
-                         } else {
-                             retval.id = id;
-                             this.emit('queryIdAllocated', retval);
+                             handler(new Error('unexpected status ' + status + ' received from server when allocating query ID'));
+                             return;
                          }
+                         this.executeBoundQuery(id, bindings, handler);
                      });
-    return retval;
-}
-
-function Query(session) {
-    this.session = session;
-}
-
-Query.prototype.bind = function(name, value, type) {
-    if (this.id == undefined) {
-        throw new Error('cannot bind to query that has no ID allocated yet');
-    }
-
-    if (type == undefined) {
-        switch (typeof value) {
-        case 'string':
-            type = 'xs:string';
-            break;
-        case 'number':
-            type = 'xs:decimal';
-            break;
-        default:
-            type = 'xs:string';
-        }
-    }
-
-    this.session.transaction([ this.session.CMD_BIND, this.id, name, value.toString(), type ],
-                             [ this.session.READ_STRING, this.session.READ_BYTE ],
-                             function (empty, status) {
-                                 if (status) {
-                                     this.readError(function (message) {
-                                         this.emit('error', new Error('bind error: ' + message));
-                                     });
-                                 }
-                             });
-}
-
-Query.prototype.close = function(handler) {
-}
-
-Query.prototype.execute = function(handler, args) {
-    var handler = handler || this.defaultHandler;
-    
-    if (this.id == undefined) {
-        throw new Error('cannot bind to query that has no ID allocated yet');
-    }
-
-    for (var key in args) {
-        this.bind(key, args[key]);
-    }
-
-    var that = this;
-    this.session.transaction([ this.session.CMD_EXECUTE, that.id ],
-                             [ this.session.READ_STRING, this.session.READ_BYTE ],
-                             function (result, status) {
-                                 that.session.transaction([ that.session.CMD_CLOSE, that.id ],
-                                                          [ that.session.READ_STRING, that.session.READ_BYTE ],
-                                                          function () {});
-                                 handler();
-                             });
-}
-
-Query.prototype.info = function(handler) {
 }
 
 exports.Session = Session;

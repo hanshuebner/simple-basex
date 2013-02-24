@@ -1,5 +1,5 @@
 var basex = require('./index.js');
-var s = new basex.Session({ user: 'ballhaus', password: 'xmx111re' }); /* ({ host: 'ballhaus.netzhansa.com', user: 'ballhaus', password: 'xmx111re'}); */
+var s = new basex.Session();
 
 s.on('loggedIn', function() {
     s.execute('open ballhaus', function() {
@@ -8,21 +8,29 @@ s.on('loggedIn', function() {
 });
 
 s.on('databaseOpen', function() {
-    var query1 = s.query('<bar foo="{$foo}" bar="{$bar}"/>');
-
-    this.on('queryIdAllocated', function () {
-        query1.execute(function (result) {
-            console.log('prepared query executed again:', result);
-        }, { foo: 17, bar: 17 });
-        /*
-        s.execute('xquery /ballhaus/repertoire/piece[1]/name');
-        s.execute('xquery /ballhaus/repertoire/piece[2]/name', function (result) {
-            console.log('specific handler for second query, result:', result);
-        });
-        s.execute('xquery /ballhaus/repertoire/piece[3]/name');
-        */
-        s.execute('exit');
+    var query1 = s.query('<bar foo="{$foo}" bar="{$bar}"/>',
+                         { foo: 123, bar: '456' },
+                         function (err, result) {
+                             if (err) {
+                                 s.emit('error', new Error(err));
+                             } else {
+                                 console.log('got query1 result:', result);
+                             }
+                         });
+    var query2 = s.query('<bar foo="{$foo}" bar="{$bar}"/>',
+                         { foo: 123, bar: '456' },
+                         function (err, result) {
+                             if (err) {
+                                 s.emit('error', new Error(err));
+                             } else {
+                                 console.log('got query2 result:', result);
+                             }
+                         });
+    s.execute('xquery /ballhaus/repertoire/piece[1]/name');
+    s.execute('xquery /ballhaus/repertoire/piece[2]/name', function (result) {
+        console.log('specific handler for second query, result:', result);
     });
+    s.execute('xquery /ballhaus/repertoire/piece[3]/name');
 });
 
 s.on('result', function (result) {
