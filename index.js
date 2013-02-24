@@ -89,6 +89,8 @@ Session.prototype.flushOutputQueue = function () {
 }
 
 Session.prototype.writeMessage = function(items, force) {
+    // Calculate size of message buffer (which is costly, but less
+    // costly than sending out multiple messages)
     var bufferSize = 0;
     for (var i = 0; i < items.length; i++) {
         var arg = items[i];
@@ -102,11 +104,8 @@ Session.prototype.writeMessage = function(items, force) {
             }
             bufferSize += 1;
             break;
-        case 'function':
-            handler = arg;
-            break;
         default:
-            throw new Error("unexpected argument type (at 1)");
+            throw new Error("unexpected argument " + i + " in Session.writeMessage, must be string or number, found " + typeof arg + " (" + arg + ")");
         }
     }
     var buffer = new Buffer(bufferSize);
@@ -121,8 +120,6 @@ Session.prototype.writeMessage = function(items, force) {
         case 'number':
             buffer.writeInt8(arg, offset++);
             break;
-        default:
-            throw new Error("unexpected argument type (at 2)");
         }
     }
 
@@ -146,6 +143,13 @@ Session.prototype.pushToStringBuffer = function (byte) {
 }
 
 Session.prototype.getStringFromBuffers = function() {
+    // Try to read a string from the buffers read so far.  First, the
+    // characters that make up the string are collected into the
+    // stringBuffer of the session.  That buffer is then decoded using
+    // the Buffer.toString() function.
+
+    // This function either returns the decoded string or null if no
+    // complete string was found in the input buffer yet.
     while (this.buffers.length > 0) {
         var buffer = this.buffers.shift();
         for (var i = 0; i < buffer.length; i++) {

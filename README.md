@@ -27,7 +27,7 @@ client session object.
 
 A example might look like this:
 
-```
+```javascript
 var basex = require('simple-basex');
 var s = new basex.Session();
 s.execute('open mydatabase');
