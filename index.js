@@ -30,7 +30,7 @@ var crypto = require('crypto');
 exports.sessionDefaults = {
     host: process.env.BASEX_HOST || 'localhost',
     port: process.env.BASEX_PORT || 1984,
-    user: process.env.BASEX_USERNAME || 'admin',
+    username: process.env.BASEX_USERNAME || 'admin',
     password: process.env.BASEX_PASSWORD || 'admin',
     initialStringBufferSize: 0x10000
 };
@@ -48,17 +48,21 @@ function Session(options) {
     this.stringBuffer = new Buffer(this.options.initialStringBufferSize);
     this.stringBufferOffset = 0;
     this.inEscape = false;
-    this.buffers = []; // list of buffers with unconsumed data
-    this.inputActions = [];
+    this.buffers = []; // list of buffers with unconsumed input data
+    // The inputActions field is pre-filled with the operations needed
+    // for the login sequence.  Any user transactions will be queued
+    // after these operations.
+    this.inputActions = [ this.READ_STRING, this.sendLogin, this.READ_BYTE, this.getLoginStatus ];
     this.handlerArguments = [];
+    // Start with queued output.  All user writes are queued until
+    // after the login has been completed.
+    this.outputQueue = [];
 
     this.socket = net.createConnection(this.options.port, this.options.host);
     this.socket.setNoDelay();
 
     var session = this;
-    this.socket.on('connect', function () { session.performHandshake(); });
     this.socket.on('data', function (data) { session.handleData(data); });
-    this.socket.on('end', function () { session.busy = true; });
 }
 
 util.inherits(Session, events.EventEmitter);
@@ -74,7 +78,17 @@ Session.prototype.CMD_EXECUTE = 5;
 Session.prototype.CMD_INFO = 6;
 Session.prototype.CMD_OPTIONS = 7;
 
-Session.prototype.writeMessage = function(items) {
+Session.prototype.flushOutputQueue = function () {
+    while (this.outputQueue.length) {
+        if (!this.socket.write(this.outputQueue.shift())) {
+            this.socket.once('drain', this.flushOutputQueue.bind(this));
+            return;                                         // stay in output queue mode
+        }
+    }
+    this.outputQueue = null;
+}
+
+Session.prototype.writeMessage = function(items, force) {
     var bufferSize = 0;
     for (var i = 0; i < items.length; i++) {
         var arg = items[i];
@@ -111,8 +125,14 @@ Session.prototype.writeMessage = function(items) {
             throw new Error("unexpected argument type (at 2)");
         }
     }
-    if (!this.socket.write(buffer)) {
-        throw new Error('could not write (write buffering not implemented)');
+
+    if (this.outputQueue && !force) {
+        this.outputQueue.push(buffer);
+    } else {
+        if (!this.socket.write(buffer)) {
+            this.outputQueue = [];
+            this.socket.once('drain', this.flushOutputQueue.bind(this));
+        }
     }
 }
 
@@ -210,21 +230,16 @@ Session.prototype.readError = function(handler) {
     this.inputActions.unshift(this.READ_STRING);
 }
 
-Session.prototype.performHandshake = function() {
-    this.transaction([],
-                     [ this.READ_STRING ],
-                     this.login);
-}
-
-Session.prototype.login = function(timestamp) {
-    this.transaction([ this.options.user, md5(md5(this.options.password) + timestamp) ],
-                     [ this.READ_BYTE ],
-                     this.getLoginStatus);
+Session.prototype.sendLogin = function(timestamp) {
+    this.writeMessage([ this.options.username, md5(md5(this.options.password) + timestamp) ], true);
 }
 
 Session.prototype.getLoginStatus = function (loginStatus) {
     if (loginStatus == 0) {
         this.emit('loggedIn');
+        if (this.outputQueue) {
+            this.flushOutputQueue();
+        }
     } else {
         this.emit('error', new Error('authorization failed'));
     };
@@ -238,15 +253,15 @@ Session.prototype.defaultHandler = function(err, result) {
     }
 }
 
-Session.prototype.execute = function (query, handler) {
+Session.prototype.execute = function (command, handler) {
     handler = handler || this.defaultHandler.bind(this);
-    this.transaction([ query ],
+    this.transaction([ command ],
                      [ this.READ_STRING, this.READ_STRING, this.READ_BYTE ],
                      function (result, info, code) {
                          if (code == 0) {
                              handler(null, { result: result, info: info });
                          } else {
-                             handler(new Error('BaseX query failed\nquery: ' + query + '\n' + 'message: ' + info));
+                             handler(new Error('BaseX command failed\ncommand: ' + command + '\n' + 'message: ' + info));
                          }
                      });
 }
@@ -293,6 +308,10 @@ Session.prototype.executeBoundQuery = function(id, bindings, handler) {
 }
 
 Session.prototype.query = function(queryString, bindings, handler) {
+    if (typeof bindings == 'function') {
+        handler = bindings;
+        bindings = {};
+    }
     this.transaction([ this.CMD_QUERY, queryString ],
                      [ this.READ_STRING, this.READ_BYTE ],
                      function (id, status) {
