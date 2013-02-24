@@ -239,7 +239,7 @@ Session.prototype.defaultHandler = function(err, result) {
 }
 
 Session.prototype.execute = function (query, handler) {
-    handler = handler || this.defaultHandler;
+    handler = handler || this.defaultHandler.bind(this);
     this.transaction([ query ],
                      [ this.READ_STRING, this.READ_STRING, this.READ_BYTE ],
                      function (result, info, code) {
