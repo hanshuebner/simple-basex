@@ -230,12 +230,12 @@ Session.prototype.getLoginStatus = function (loginStatus) {
     };
 }
 
-Session.prototype.defaultHandler = function(result, info, code) {
-    if (code == undefined) {
-        code = info;
-        info = undefined;
+Session.prototype.defaultHandler = function(err, result) {
+    if (err) {
+        this.emit('error', err);
+    } else {
+        this.emit('result', result);
     }
-    this.emit('result', { result: result, info: info, code: code });
 }
 
 Session.prototype.execute = function (query, handler) {
@@ -244,9 +244,9 @@ Session.prototype.execute = function (query, handler) {
                      [ this.READ_STRING, this.READ_STRING, this.READ_BYTE ],
                      function (result, info, code) {
                          if (code == 0) {
-                             handler.call(this, result, info);
+                             handler(null, { result: result, info: info });
                          } else {
-                             this.emit('error', new Error('BaseX query failed\nquery: ' + query + '\n' + 'message: ' + info));
+                             handler(new Error('BaseX query failed\nquery: ' + query + '\n' + 'message: ' + info));
                          }
                      });
 }
