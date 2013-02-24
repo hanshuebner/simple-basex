@@ -49,7 +49,7 @@ function Session(options) {
     this.stringBufferOffset = 0;
     this.inEscape = false;
     this.buffers = []; // list of buffers with unconsumed data
-    this.queue = [];
+    this.inputActions = [];
     this.handlerArguments = [];
 
     this.socket = net.createConnection(this.options.port, this.options.host);
@@ -168,13 +168,13 @@ Session.prototype.getByteFromBuffers = function () {
 Session.prototype.handleData = function(data) {
     this.buffers.push(data);
 
-    while (this.queue.length > 0) {
-        switch (this.queue[0]) {
+    while (this.inputActions.length > 0) {
+        switch (this.inputActions[0]) {
         case this.READ_STRING:
             var string = this.getStringFromBuffers();
             if (string !== null) {
                 this.handlerArguments.push(string);
-                this.queue.shift();
+                this.inputActions.shift();
                 break;
             } else {
                 return;
@@ -183,13 +183,13 @@ Session.prototype.handleData = function(data) {
             var byte = this.getByteFromBuffers();
             if (byte !== null) {
                 this.handlerArguments.push(byte);
-                this.queue.shift();
+                this.inputActions.shift();
                 break;
             } else {
                 return;
             }
         default:
-            var handler = this.queue.shift();
+            var handler = this.inputActions.shift();
             var arguments = this.handlerArguments;
             this.handlerArguments = [];
             handler.apply(this, arguments);
@@ -199,15 +199,15 @@ Session.prototype.handleData = function(data) {
 
 Session.prototype.transaction = function(sendData, receiveData, handler) {
     for (var i = 0; i < receiveData.length; i++) {
-        this.queue.push(receiveData[i]);
+        this.inputActions.push(receiveData[i]);
     }
-    this.queue.push(handler);
+    this.inputActions.push(handler);
     this.writeMessage(sendData);
 }
 
 Session.prototype.readError = function(handler) {
-    this.queue.unshift(handler);
-    this.queue.unshift(this.READ_STRING);
+    this.inputActions.unshift(handler);
+    this.inputActions.unshift(this.READ_STRING);
 }
 
 Session.prototype.performHandshake = function() {
@@ -288,7 +288,7 @@ Session.prototype.executeBoundQuery = function(id, bindings, handler) {
                                    handler(null, result);
                                }
                            } ]);
-    this.queue = this.queue.concat(input);
+    this.inputActions = this.inputActions.concat(input);
     this.writeMessage(output);
 }
 
