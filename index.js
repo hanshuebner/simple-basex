@@ -230,6 +230,9 @@ Session.prototype.transaction = function(sendData, receiveData, handler) {
 }
 
 Session.prototype.readError = function(handler) {
+    // If an error occurs, the error message will follow the error
+    // status byte.  Deal with this by reading the error message next,
+    // before processing any queued input operations.
     this.inputActions.unshift(handler);
     this.inputActions.unshift(this.READ_STRING);
 }
