@@ -120,3 +120,16 @@ determined from the value types in the `bindings` object.
 signature.  `err` will be an Error object if an error occured during
 query execution.  `data` will contain the result string.  Query
 diagnostics are not currently returned for bound query execution.
+
+When both `bindings` and `handler` are unspecified, the query is
+prepared, but not executed, and a `query` object is returned.  That
+object can then be used to execute the query.  With BaseX version
+7.6.1 beta or later, the query can be executed multiple times, with
+different variable bindings.
+
+### query.execute([bindings], [handler])
+
+Execute the previously prepared `query`.  `bindings` specify variable
+bindings as a map, `handler` is the callback to call.  If no `handler`
+is specified, an 'error' or 'result' event will be emitted on the
+query when execution is complete.
