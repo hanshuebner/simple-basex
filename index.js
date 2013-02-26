@@ -360,11 +360,12 @@ function Query(session, queryString) {
 util.inherits(Query, events.EventEmitter);
 
 Query.prototype.execute = function(bindings, handler) {
-    handler = handler || this.session.defaultHandler.bind(this);
     if (typeof bindings == 'function') {
         handler = bindings;
         bindings = {};
     }
+
+    handler = handler || this.session.defaultHandler.bind(this);
 
     function execute() {
         this.session.executeBoundQuery(this.id, bindings, handler);
