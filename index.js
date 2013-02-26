@@ -349,11 +349,11 @@ function Query(session, queryString) {
     this.session.prepareQuery(queryString, 
                               function (id, status) {
                                   if (status != 0) {
-                                      handler(new Error('unexpected status ' + status + ' received from server when allocating query ID'));
-                                      return;
+                                      query.emit('error', new Error('unexpected status ' + status + ' received from server when allocating query ID'));
+                                  } else {
+                                      query.id = id;
+                                      query.emit('queryParsed');
                                   }
-                                  query.id = id;
-                                  query.emit('queryParsed')
                               });
 }
 
