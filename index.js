@@ -314,20 +314,67 @@ Session.prototype.executeBoundQuery = function(id, bindings, handler) {
     this.writeMessage(output);
 }
 
+Session.prototype.prepareQuery = function(queryString, handler) {
+    this.transaction([ this.CMD_QUERY, queryString ],
+                     [ this.READ_STRING, this.READ_BYTE ],
+                     handler);
+}
+
 Session.prototype.query = function(queryString, bindings, handler) {
     if (typeof bindings == 'function') {
         handler = bindings;
         bindings = {};
     }
-    this.transaction([ this.CMD_QUERY, queryString ],
-                     [ this.READ_STRING, this.READ_BYTE ],
-                     function (id, status) {
-                         if (status != 0) {
-                             handler(new Error('unexpected status ' + status + ' received from server when allocating query ID'));
-                             return;
-                         }
-                         this.executeBoundQuery(id, bindings, handler);
-                     });
+    if (handler) {
+        this.prepareQuery(queryString,
+                          function (id, status) {
+                              if (status != 0) {
+                                  handler(new Error('unexpected status ' + status + ' received from server when allocating query ID'));
+                                  return;
+                              }
+                              this.executeBoundQuery(id, bindings, handler);
+                          });
+    } else {
+        return new Query(this, queryString);
+    }
+}
+
+function Query(session, queryString) {
+    events.EventEmitter.call(this);
+
+    this.session = session;
+    this.queryString = queryString;
+
+    var query = this;
+    this.session.prepareQuery(queryString, 
+                              function (id, status) {
+                                  if (status != 0) {
+                                      handler(new Error('unexpected status ' + status + ' received from server when allocating query ID'));
+                                      return;
+                                  }
+                                  query.id = id;
+                                  query.emit('queryParsed')
+                              });
+}
+
+util.inherits(Query, events.EventEmitter);
+
+Query.prototype.execute = function(bindings, handler) {
+    handler = handler || this.session.defaultHandler.bind(this);
+    if (typeof bindings == 'function') {
+        handler = bindings;
+        bindings = {};
+    }
+
+    function execute() {
+        this.session.executeBoundQuery(this.id, bindings, handler);
+    }
+
+    if (this.id == undefined) {
+        this.once('queryParsed', execute);
+    } else {
+        execute();
+    }
 }
 
 exports.Session = Session;

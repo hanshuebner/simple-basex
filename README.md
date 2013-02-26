@@ -25,7 +25,7 @@ database server without waiting for responses.  Responses can either
 be collected by callbacks, or by the way of events emitted by the
 client session object.
 
-A example might look like this:
+An example might look like this:
 
 ```javascript
 var basex = require('simple-basex');
@@ -41,6 +41,27 @@ All interaction with BaseX is mediated through a Session object which
 needs to be allocated using the `new` operator.  Database commands can
 be executed through the `execute` function.  Queries are typically
 sent using the `query` function, which also supports bound variables.
+
+## Prepared query execution
+
+simple-basex supports prepared query execution in BaseX versions 7.6.1
+beta and later.  In this mode, a query is prepared and can then be
+executed multiple times with different variable bindings:
+
+```javascript
+var basex = require('./index');
+var s = new basex.Session();
+
+var query = s.query('<foo bar="{$bar}"/>');
+query.on('result', function (result) {
+    console.log('query event', result);
+});
+query.execute({ bar: 1 });
+query.execute({ bar: 2 }, function (err, result) {
+    console.log('query result', result);
+    s.execute('exit');
+});
+```
 
 ## Environment variables
 
