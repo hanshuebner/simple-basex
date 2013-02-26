@@ -372,9 +372,9 @@ Query.prototype.execute = function(bindings, handler) {
     }
 
     if (this.id == undefined) {
-        this.once('queryParsed', execute);
+        this.once('queryParsed', execute.bind(this));
     } else {
-        execute();
+        execute.bind(this)();
     }
 }
 
