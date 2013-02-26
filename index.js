@@ -58,11 +58,11 @@ function Session(options) {
     // after the login has been completed.
     this.outputQueue = [];
 
-    this.socket = net.createConnection(this.options.port, this.options.host);
+    this.socket = net.connect(this.options.port, this.options.host);
     this.socket.setNoDelay();
 
-    var session = this;
-    this.socket.on('data', function (data) { session.handleData(data); });
+    this.socket.on('error', this.emit.bind(this, 'connectionError'));
+    this.socket.on('data', this.handleData.bind(this));
 }
 
 util.inherits(Session, events.EventEmitter);

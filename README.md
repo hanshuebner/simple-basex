@@ -98,6 +98,11 @@ set to the desired value.
 The returned session object handles the context for all database
 interactions.
 
+The session object is an EventEmitter.  When a connection error is
+encountered by the client, it is forwarded as 'connectionError' event
+on the session object.  This can be used to implement automatic
+database reconnection for long running server processes.
+
 ### session.execute(command, [handler])
 
 Execute the `command` on the database server.  Upon completion, the
