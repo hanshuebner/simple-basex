@@ -10,7 +10,7 @@ respect to the bound query interface.
 simple-basex is self contained and uses only core Node.JS
 functionality.  It can be installed using [npm](http://npmjs.org/):
 
-`npm install basex`
+`npm install simple-basex`
 
 A simple test script is provided which requires a BaseX server running
 on the local machine.  By default, the username "admin" and the
